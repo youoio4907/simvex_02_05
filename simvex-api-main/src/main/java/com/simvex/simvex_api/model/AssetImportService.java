@@ -1,4 +1,3 @@
-// src/main/java/com/simvex/simvex_api/bootstrap/AssetImportService.java
 package com.simvex.simvex_api.model;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -41,7 +40,7 @@ public class AssetImportService {
         }
 
         // 기존 모델들 한번에 로딩(정규화 매칭용)
-        List<ModelEntity> existingModels = modelRepository.findAll();
+        List<ModelEntity> existingModels = new ArrayList<>(modelRepository.findAll());
 
         for (Resource r : resources) {
             Map<String, Object> root = objectMapper.readValue(
@@ -62,8 +61,20 @@ public class AssetImportService {
             ModelEntity model = findBestModelMatch(existingModels, rawKey, integratedFile);
 
             if (model == null) {
-                System.out.println("[IMPORT] 모델 매칭 실패라 스킵: " + rawKey);
-                continue;
+                System.out.println("[IMPORT] 모델 없음 -> 자동 생성: " + rawKey);
+
+                String folderName = rawKey;
+                if ("V4Engine".equals(rawKey)) {
+                    folderName = "V4_Engine";
+                } else {
+                    folderName = rawKey.replace("_", " ");
+                }
+
+                String modelUrl = "/assets/3d/" + folderName + "/";
+
+                model = new ModelEntity(rawKey, modelUrl);
+                model = modelRepository.save(model);
+                existingModels.add(model);
             } else {
                 System.out.println("[IMPORT] 모델 매칭: " + model.getTitle() + " <= " + rawKey);
             }
@@ -96,9 +107,15 @@ public class AssetImportService {
                 content.put("raw", a);
 
                 // uk_model_mesh(모델+meshName) 기준으로 upsert
-                PartEntity part = findPart(model.getId(), meshName).orElseGet(() ->
-                        new PartEntity(model, meshName, new LinkedHashMap<>())
-                );
+                Optional<PartEntity> existingPart = findPart(model.getId(), meshName);
+                PartEntity part;
+
+                if (existingPart.isPresent()) {
+                    part = existingPart.get();
+                } else {
+                    part = new PartEntity(model, meshName, new LinkedHashMap<>());
+                }
+
                 part.setMeshName(meshName);
                 part.setContent(content);
                 part.setModel(model);
